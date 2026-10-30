@@ -95,6 +95,16 @@ deps() {
   bun install --frozen-lockfile
 }
 
+# Audit the complete committed dependency graph at the same high threshold as
+# native CI. Every nonzero scanner status is failure, including the step helper's
+# otherwise-special skip status; this required security check cannot be skipped.
+dependency_audit() {
+  if bun audit --audit-level=high; then
+    return 0
+  fi
+  return 1
+}
+
 # tsc --noEmit over src/, integrations/ AND wrappers/ (tsconfig.json "include"
 # decides; keep them all listed there). wrappers/ matters more than its size
 # suggests: package.json's "exports" map points ./react and ./vue straight at
@@ -192,6 +202,7 @@ secret_scan() {
 # the build. Nothing stops at the first failure: the summary reports all of them.
 step "package manager"                              package_manager
 step "dependencies install from the committed lockfile" deps
+step "dependency vulnerability audit (high)"          dependency_audit
 step "typecheck (src, integrations, wrappers)"      typecheck
 step "unit tests (vitest, executed)"                unit_tests
 step "build (rollup, all bundles + .d.ts)"          build
