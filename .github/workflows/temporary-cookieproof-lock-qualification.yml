@@ -1,0 +1,223 @@
+name: temporary CookieProof lock qualification
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: github.repository == 'cloud-rebellion/cookieproof' && github.head_ref == 'ci/cookieproof-security-qualification-20261030'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 385dc80f7cd3363bce363cba5c091a952348cab6
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.22.2"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Generate reviewed lock, verify frozen install, and require high audit
+        id: qualify
+        env:
+          QUALIFICATION_OUT: ${{ runner.temp }}/cookieproof-lock-qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_CHECK'
+          import hashlib
+          from pathlib import Path
+          expected = {'package.json': 'fc906185305771581c30baae5d304bc9848cabdae20cbb43ddbcd47291749281', 'bun.lock': '4dc943c34d6df5fda97a1626c9b7461a282400c7546ec71b801560f72cffa0ba'}
+          for name, digest in expected.items():
+              path = Path(name)
+              assert path.is_file() and not path.is_symlink()
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, 'baseline source drift'
+          PY_CHECK
+          mkdir -p "$QUALIFICATION_OUT"
+          cp bun.lock "$QUALIFICATION_OUT/bun.lock"
+          cat > "$QUALIFICATION_OUT/package.json" <<'PACKAGE_JSON'
+          {
+            "name": "cookieproof",
+            "version": "0.1.0",
+            "description": "GDPR & IMY 2026 compliant cookie consent Web Component with Shadow DOM, Google Consent Mode V2, and script-gate engine",
+            "type": "module",
+            "main": "dist/cookieproof.umd.js",
+            "module": "dist/cookieproof.esm.js",
+            "types": "dist/src/index.d.ts",
+            "exports": {
+              ".": {
+                "import": "./dist/cookieproof.esm.js",
+                "require": "./dist/cookieproof.umd.js",
+                "types": "./dist/src/index.d.ts"
+              },
+              "./integrations": {
+                "types": "./dist/integrations/index.d.ts",
+                "import": "./dist/integrations/index.esm.js",
+                "require": "./dist/integrations/index.umd.js"
+              },
+              "./integrations/*": {
+                "types": "./dist/integrations/*.d.ts",
+                "import": "./dist/integrations/*.esm.js",
+                "require": "./dist/integrations/*.umd.js"
+              },
+              "./react": {
+                "types": "./wrappers/react.tsx",
+                "import": "./wrappers/react.tsx",
+                "default": "./wrappers/react.tsx"
+              },
+              "./vue": {
+                "types": "./wrappers/vue.ts",
+                "import": "./wrappers/vue.ts",
+                "default": "./wrappers/vue.ts"
+              }
+            },
+            "files": [
+              "dist/",
+              "!dist/**/*.map",
+              "wrappers/",
+              "src/core/types.ts",
+              "README.md",
+              "LICENSE"
+            ],
+            "scripts": {
+              "dev": "rollup -c -w",
+              "build": "rollup -c",
+              "test": "vitest run",
+              "test:watch": "vitest",
+              "typecheck": "tsc --noEmit",
+              "size": "npm run build && node scripts/check-size.mjs",
+              "test:e2e": "playwright test",
+              "test:all": "bun run test && playwright test",
+              "prepublishOnly": "npm run build"
+            },
+            "keywords": [
+              "cookie-consent",
+              "gdpr",
+              "imy",
+              "web-component",
+              "shadow-dom",
+              "google-consent-mode",
+              "privacy",
+              "compliance"
+            ],
+            "author": "Bright Interaction",
+            "license": "SEE LICENSE IN LICENSE",
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/bright-interaction/cookieproof"
+            },
+            "homepage": "https://consent.example.com",
+            "engines": {
+              "node": ">=18"
+            },
+            "devDependencies": {
+              "@playwright/test": "^1.62.0",
+              "@rollup/plugin-terser": "^0.4.4",
+              "@rollup/plugin-typescript": "^12.3.0",
+              "@types/react": ">=17",
+              "happy-dom": "^21.0.4",
+              "http-server": "^14.1.1",
+              "react": ">=17",
+              "rollup": "^4.62.2",
+              "tslib": "^2.8.1",
+              "typescript": "^5.9.3",
+              "vitest": "^4.1.10",
+              "vue": "^3.5.42"
+            },
+            "overrides": {
+              "nanoid": "^3.3.17",
+              "serialize-javascript": ">=7.0.3",
+              "postcss": "^8.5.18",
+              "picomatch": "^2.3.2",
+              "follow-redirects": "^1.16.2",
+              "source-map-js": "^1.2.2",
+              "vite": "^7.3.7"
+            },
+            "peerDependencies": {
+              "react": ">=17",
+              "vue": ">=3",
+              "@types/react": ">=17"
+            },
+            "peerDependenciesMeta": {
+              "react": {
+                "optional": true
+              },
+              "vue": {
+                "optional": true
+              },
+              "@types/react": {
+                "optional": true
+              }
+            },
+            "sideEffects": [
+              "dist/cookieproof.esm.js",
+              "dist/cookieproof.umd.js"
+            ],
+            "dependencies": {
+              "@sentry/bun": "^10.68.0"
+            }
+          }
+          PACKAGE_JSON
+          cd "$QUALIFICATION_OUT"
+          python3 - <<'PY_CANDIDATE'
+          import hashlib
+          from pathlib import Path
+          assert hashlib.sha256(Path('package.json').read_bytes()).hexdigest() == '6f37a25d0525ddeec2983a85c4759e82cb2b1cafee754042f0412869c60eba8f'
+          PY_CANDIDATE
+          test "$(bun --version)" = '1.4.4'
+          test "$(node --version)" = 'v24.22.2'
+          bun install --lockfile-only --ignore-scripts
+          sha256sum bun.lock > "$RUNNER_TEMP/cookieproof-lock-before-frozen.sha256"
+          bun install --frozen-lockfile --ignore-scripts
+          sha256sum -c "$RUNNER_TEMP/cookieproof-lock-before-frozen.sha256"
+          set +e
+          bun audit --audit-level=high --json > audit.json
+          QUALIFICATION_AUDIT_RC=$?
+          set -e
+          export QUALIFICATION_AUDIT_RC
+          python3 - <<'PY_RECEIPT'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          output = {'baseline_public_head': '385dc80f7cd3363bce363cba5c091a952348cab6', 'candidate_package_sha256': '6f37a25d0525ddeec2983a85c4759e82cb2b1cafee754042f0412869c60eba8f', 'bun_version': subprocess.check_output(['bun', '--version'], text=True).strip(), 'node_version': subprocess.check_output(['node', '--version'], text=True).strip(), 'frozen_install_lock_unchanged': True, 'lifecycle_scripts_executed': False, 'high_audit_exit_code': int(os.environ['QUALIFICATION_AUDIT_RC']), 'scope': 'lock generation/frozen-install metadata and audit only; not product build, tests, browser or runtime acceptance'}
+          output['files'] = {name: {'bytes': Path(name).stat().st_size, 'sha256': hashlib.sha256(Path(name).read_bytes()).hexdigest()} for name in ('package.json', 'bun.lock', 'audit.json')}
+          Path('qualification.json').write_text(json.dumps(output, indent=2) + chr(10))
+          PY_RECEIPT
+          exit "$QUALIFICATION_AUDIT_RC"
+      - name: Bound qualification artifacts
+        id: bound
+        if: always()
+        env:
+          QUALIFICATION_OUT: ${{ runner.temp }}/cookieproof-lock-qualification
+        run: |
+          python3 - <<'PY_BOUND'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['QUALIFICATION_OUT'])
+          names = ('package.json', 'bun.lock', 'audit.json', 'qualification.json')
+          total = 0
+          for name in names:
+              path = root / name
+              assert path.is_file() and not path.is_symlink(), 'missing regular qualification artifact'
+              size = path.stat().st_size
+              assert size <= 1048576, 'qualification artifact exceeded1MiB'
+              total += size
+          assert total <= 2097152, 'qualification artifact packet exceeded2MiB'
+          PY_BOUND
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && steps.bound.outcome == 'success'
+        with:
+          name: cookieproof-lock-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/cookieproof-lock-qualification/package.json
+            ${{ runner.temp }}/cookieproof-lock-qualification/bun.lock
+            ${{ runner.temp }}/cookieproof-lock-qualification/audit.json
+            ${{ runner.temp }}/cookieproof-lock-qualification/qualification.json
+          retention-days: 1
+          if-no-files-found: error
